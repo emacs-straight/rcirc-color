@@ -34,6 +34,10 @@
 
 (require 'rcirc)
 
+(defgroup rcirc-color ()
+  "Highlight nicknames in rcirc."
+  :group 'rcirc)
+
 (defun rcirc-color-distance (color1 color2)
   "Compute the difference between two colors.
 The difference between COLOR1 and COLOR2 is computed using the
@@ -58,7 +62,7 @@ everything by 256. This also helps preventing integer overflow."
 	     (* 4 dg dg)
 	     (ash (* (- 767 red-mean) db db) -8)))))
 
-(defvar rcirc-colors
+(defcustom rcirc-colors
   (let ((min-distance 200); heuristics
 	(bg (face-background 'default))
 	(fg (face-foreground 'rcirc-my-nick))
@@ -80,23 +84,26 @@ By default, all the non-grey colors that are very different from
 the default background are candidates.  This uses `rcirc-color-distance'
 to compute distance between colors.
 
-To check out the list, evaluate (list-colors-display rcirc-colors).")
+To check out the list, evaluate (list-colors-display rcirc-colors)."
+  :type '(repeat color))
 
 (defvar rcirc-color-mapping (make-hash-table :test 'equal)
   "Hash-map mapping nicks to color names.")
 
-(defvar rcirc-color-is-deterministic nil
+(defcustom rcirc-color-is-deterministic nil
   "Normally rcirc just assigns random colors to nicks.
 These colors are based on the list in `rcirc-colors'.
 If you set this variable to a non-nil value, an md5 hash is
 computed based on the nickname and the first twelve bytes are
-used to determine the color: #rrrrggggbbbb.")
+used to determine the color: #rrrrggggbbbb."
+  :type 'boolean)
 
-(defvar rcirc-color-other-attributes nil
+(defcustom rcirc-color-other-attributes nil
   "Other attributes to use for nicks.
-Example: (setq rcirc-color-other-attributes '(:weight bold))")
+Example: (setq rcirc-color-other-attributes '(:weight bold))"
+  :type 'plist)
 
-(advice-add 'rcirc-facify :around #'rcirc-color--facify)
+
 (defun rcirc-color--facify (orig-fun string face &rest args)
   "Add colors to other nicks based on `rcirc-colors'."
   (when (and (eq face 'rcirc-other-nick)
@@ -122,11 +129,11 @@ This ignores SENDER and RESPONSE."
 	(when face
 	  (rcirc-add-face (match-beginning 0) (match-end 0) face))))))
 
-(add-hook 'rcirc-markup-text-functions #'rcirc-markup-nick-colors)
-
-(rcirc-define-command color (nick color)
+(defun-rcirc-command color (args)
   "Change one of the nick colors."
-  (rcirc-do-color nick color process target))
+  (interactive)
+  (setq args (split-string args))
+  (rcirc-do-color (car args) (cadr args) process target))
 
 (defun rcirc-do-color (nick color process target)
   "Implement the /color command.
@@ -134,7 +141,9 @@ NICK is the nick for which the new color ist set; if nil, all the
 nicks in `rcirc-color-mapping' are shown with their corresponding
 faces.
 
-COLOR is the color to use as the new foreground-color.
+COLOR is the color to use as the new foreground-color.  If COLOR
+is not supplied, a random color from `rcirc-colors' is used
+instead.
 
 PROCESS and TARGET are the standard arguments for rcirc
 commands."
@@ -149,11 +158,11 @@ commands."
                  rcirc-color-mapping)
         (rcirc-print process (rcirc-nick process) "NOTICE" target
                      (mapconcat 'identity names " ")))
-    (unless color
-      (error "Use what color?"))
-    (puthash nick (cons 'foreground-color color) rcirc-color-mapping)))
+    (let* ((index (random (length rcirc-colors)))
+           (color (elt rcirc-colors index))
+           (face `(:foreground ,color ,@rcirc-color-other-attributes)))
+      (puthash nick face rcirc-color-mapping))))
 
-(advice-add 'rcirc-handler-NICK :before #'rcirc-color--handler-NICK)
 (defun rcirc-color--handler-NICK (_process sender args _text)
   "Update colors in `rcirc-color-mapping'."
   (let* ((old-nick (rcirc-user-nick sender))
@@ -162,6 +171,26 @@ commands."
     ;; don't delete the old mapping
     (when cell
       (puthash new-nick cell rcirc-color-mapping))))
+
+;;;###autoload
+(define-minor-mode rcirc-color-mode
+  "Enable the highlighting of nicknames."
+  (cond
+   (rcirc-color-mode
+    (advice-add 'rcirc-facify :around #'rcirc-color--facify)
+    (advice-add 'rcirc-handler-NICK :before #'rcirc-color--handler-NICK)
+    (add-hook 'rcirc-markup-text-functions #'rcirc-markup-nick-colors))
+   (t                                   ;disable `rcirc-color-mode'
+    (advice-remove 'rcirc-facify #'rcirc-color--facify)
+    (advice-remove 'rcirc-handler-NICK #'rcirc-color--handler-NICK)
+    (remove-hook 'rcirc-markup-text-functions #'rcirc-markup-nick-colors))))
+
+;; FIXME: Traditionally rcirc-color initialises itself when loaded, so
+;; we preserve this behaviour even after the addition of
+;; `rcirc-color-mode'.  Eventually we should move from this kind of
+;; implicit to an explicit initialisation via the minor mode.  But for
+;; now we just enable the minor mode to avoid breaking stuff.
+(rcirc-color-mode t)
 
 (provide 'rcirc-color)
 
