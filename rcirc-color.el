@@ -4,7 +4,7 @@
 
 ;; Author: Alex Schroeder <alex@gnu.org>
 ;; Maintainer: Alex Schroeder <alex@gnu.org>
-;; Version: 0.4.3
+;; Version: 0.4.4
 ;; Package-Requires: ((emacs "24.4"))
 ;; Keywords: comm
 
@@ -101,7 +101,7 @@ used to determine the color: #rrrrggggbbbb."
 
 (defcustom rcirc-color-other-attributes nil
   "Other attributes to use for nicks.
-Example: (setq rcirc-color-other-attributes '(:weight bold))"
+Example: (setq rcirc-color-other-attributes \\='(:weight bold))"
   :type 'plist)
 
 
@@ -113,7 +113,9 @@ Example: (setq rcirc-color-other-attributes '(:weight bold))"
                     (puthash (substring-no-properties string)
                              `(:foreground
 			       ,(if rcirc-color-is-deterministic
-				    (concat "#" (substring (md5 string) 0 12))
+                                    (nth (mod (string-to-number (md5 string) 16)
+                                              (length rcirc-colors))
+                                         rcirc-colors)
 				  (elt rcirc-colors
                                        (random (length rcirc-colors))))
 			       ,@rcirc-color-other-attributes)
@@ -176,6 +178,7 @@ commands."
 ;;;###autoload
 (define-minor-mode rcirc-color-mode
   "Enable the highlighting of nicknames."
+  :global t
   (cond
    (rcirc-color-mode
     (advice-add 'rcirc-facify :around #'rcirc-color--facify)
